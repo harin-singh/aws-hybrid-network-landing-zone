@@ -1,36 +1,37 @@
 #!/bin/bash
 #------------------------------------------------------------------------------
 # Simulated On-Premises Router Configuration
-# This script configures an Amazon Linux 2023 instance as a VPN router using:
-# - strongSwan: IPsec VPN tunnels
-# - FRR (Free Range Routing): BGP routing
+# strongSwan (IPsec) + FRR (BGP) on Amazon Linux 2023.
 #
-# IMPORTANT: This is for demonstration/testing purposes.
-# In production, use proper network devices or Direct Connect.
+# Pre-shared keys are fetched at boot from SSM Parameter Store. They are not
+# interpolated into this template by Terraform.
 #------------------------------------------------------------------------------
 
-set -e
+set -euo pipefail
 exec > >(tee /var/log/router-setup.log) 2>&1
 
 echo "=== Starting router configuration ==="
 
-# Enable IP forwarding
+TOKEN=$(curl -sS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+LOCAL_IP=$(curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/local-ipv4)
+REGION=$(curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/placement/region)
+
 echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.d/99-router.conf
 echo "net.ipv4.conf.all.accept_redirects = 0" >> /etc/sysctl.d/99-router.conf
 echo "net.ipv4.conf.all.send_redirects = 0" >> /etc/sysctl.d/99-router.conf
 sysctl -p /etc/sysctl.d/99-router.conf
 
-# Install strongSwan
-echo "=== Installing strongSwan ==="
-dnf install -y strongswan
+echo "=== Installing strongSwan and FRR ==="
+dnf install -y strongswan frr frr-selinux awscli
 
-# Install FRR
-echo "=== Installing FRR ==="
-dnf install -y frr frr-selinux
-
-#------------------------------------------------------------------------------
-# strongSwan Configuration
-#------------------------------------------------------------------------------
+TUNNEL1_PSK=""
+TUNNEL2_PSK=""
+%{ if tunnel1_psk_parameter != "" }
+TUNNEL1_PSK=$(aws ssm get-parameter --region "$REGION" --name "${tunnel1_psk_parameter}" --with-decryption --query 'Parameter.Value' --output text)
+%{ endif }
+%{ if tunnel2_psk_parameter != "" }
+TUNNEL2_PSK=$(aws ssm get-parameter --region "$REGION" --name "${tunnel2_psk_parameter}" --with-decryption --query 'Parameter.Value' --output text)
+%{ endif }
 
 echo "=== Configuring strongSwan ==="
 
@@ -70,15 +71,12 @@ conn tunnel2
     leftupdown=/etc/strongswan/ipsec-vti.sh
 EOF
 
-# Configure pre-shared keys
 cat > /etc/strongswan/ipsec.secrets << EOF
-${tunnel1_cgw_inside_ip} ${tunnel1_aws_endpoint} : PSK "${tunnel1_psk}"
-${tunnel2_cgw_inside_ip} ${tunnel2_aws_endpoint} : PSK "${tunnel2_psk}"
+${tunnel1_cgw_inside_ip} ${tunnel1_aws_endpoint} : PSK "$TUNNEL1_PSK"
+${tunnel2_cgw_inside_ip} ${tunnel2_aws_endpoint} : PSK "$TUNNEL2_PSK"
 EOF
-
 chmod 600 /etc/strongswan/ipsec.secrets
 
-# VTI script for tunnel interfaces
 cat > /etc/strongswan/ipsec-vti.sh << 'VTISCRIPT'
 #!/bin/bash
 
@@ -97,35 +95,22 @@ case "$${PLUTO_VERB}" in
         ;;
 esac
 VTISCRIPT
-
 chmod +x /etc/strongswan/ipsec-vti.sh
 
-#------------------------------------------------------------------------------
-# Create VTI interfaces manually (for BGP)
-#------------------------------------------------------------------------------
-
 echo "=== Creating VTI interfaces ==="
-
-# Create tunnel interfaces
-ip tunnel add vti1 local $(curl -s http://169.254.169.254/latest/meta-data/local-ipv4) remote ${tunnel1_aws_endpoint} mode vti key 100
+ip tunnel add vti1 local "$LOCAL_IP" remote ${tunnel1_aws_endpoint} mode vti key 100
 ip addr add ${tunnel1_cgw_inside_ip}/30 dev vti1
 sysctl -w net.ipv4.conf.vti1.disable_policy=1
 sysctl -w net.ipv4.conf.vti1.rp_filter=2
 ip link set vti1 up mtu 1419
 
-ip tunnel add vti2 local $(curl -s http://169.254.169.254/latest/meta-data/local-ipv4) remote ${tunnel2_aws_endpoint} mode vti key 200
+ip tunnel add vti2 local "$LOCAL_IP" remote ${tunnel2_aws_endpoint} mode vti key 200
 ip addr add ${tunnel2_cgw_inside_ip}/30 dev vti2
 sysctl -w net.ipv4.conf.vti2.disable_policy=1
 sysctl -w net.ipv4.conf.vti2.rp_filter=2
 ip link set vti2 up mtu 1419
 
-#------------------------------------------------------------------------------
-# FRR Configuration
-#------------------------------------------------------------------------------
-
 echo "=== Configuring FRR ==="
-
-# Enable BGP daemon
 sed -i 's/bgpd=no/bgpd=yes/' /etc/frr/daemons
 
 cat > /etc/frr/frr.conf << EOF
@@ -139,23 +124,18 @@ router bgp ${customer_asn}
  bgp router-id ${private_interface_ip}
  no bgp ebgp-requires-policy
  !
- ! Neighbor for Tunnel 1
  neighbor ${tunnel1_aws_inside_ip} remote-as ${aws_asn}
  neighbor ${tunnel1_aws_inside_ip} timers 10 30
- !
- ! Neighbor for Tunnel 2
  neighbor ${tunnel2_aws_inside_ip} remote-as ${aws_asn}
  neighbor ${tunnel2_aws_inside_ip} timers 10 30
  !
  address-family ipv4 unicast
-  ! Advertise on-premises network
   network ${onprem_cidr}
-  !
+  network ${vpc_cidr}
   neighbor ${tunnel1_aws_inside_ip} soft-reconfiguration inbound
   neighbor ${tunnel2_aws_inside_ip} soft-reconfiguration inbound
  exit-address-family
 !
-! Static route for advertised prefix (null route or via local interface)
 ip route ${onprem_cidr} Null0
 !
 line vty
@@ -165,21 +145,11 @@ EOF
 chmod 640 /etc/frr/frr.conf
 chown frr:frr /etc/frr/frr.conf
 
-#------------------------------------------------------------------------------
-# Start Services
-#------------------------------------------------------------------------------
-
 echo "=== Starting services ==="
-
 systemctl enable strongswan
 systemctl start strongswan
-
 systemctl enable frr
 systemctl start frr
-
-#------------------------------------------------------------------------------
-# Status
-#------------------------------------------------------------------------------
 
 echo "=== Router configuration complete ==="
 echo "Check IPsec status: strongswan status"

@@ -48,6 +48,16 @@ output "firewall_policy_arn" {
   value       = aws_networkfirewall_firewall_policy.this.arn
 }
 
+output "firewall_stateful_default_actions" {
+  description = "Stateful default actions on the firewall policy"
+  value       = aws_networkfirewall_firewall_policy.this.firewall_policy[0].stateful_default_actions
+}
+
+output "segmentation_rules_string" {
+  description = "Suricata rules used for prod/nonprod/on-prem segmentation"
+  value       = aws_networkfirewall_rule_group.segmentation.rule_group[0].rules_source[0].rules_string
+}
+
 output "nat_gateway_ids" {
   description = "List of NAT Gateway IDs"
   value       = var.enable_egress ? aws_nat_gateway.this[*].id : []

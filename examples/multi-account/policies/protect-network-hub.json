@@ -1,0 +1,33 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyTransitGatewayMutationOutsideNetworkAccount",
+      "Effect": "Deny",
+      "Action": [
+        "ec2:CreateTransitGateway",
+        "ec2:DeleteTransitGateway",
+        "ec2:ModifyTransitGateway",
+        "ec2:CreateTransitGatewayRouteTable",
+        "ec2:DeleteTransitGatewayRouteTable",
+        "ec2:CreateTransitGatewayRoute",
+        "ec2:DeleteTransitGatewayRoute",
+        "ec2:ReplaceTransitGatewayRoute",
+        "ec2:AssociateTransitGatewayRouteTable",
+        "ec2:DisassociateTransitGatewayRouteTable",
+        "ec2:EnableTransitGatewayRouteTablePropagation",
+        "ec2:DisableTransitGatewayRouteTablePropagation",
+        "ec2:ModifyTransitGatewayVpcAttachment",
+        "ec2:DeleteTransitGatewayVpcAttachment",
+        "ec2:AcceptTransitGatewayVpcAttachment",
+        "ec2:RejectTransitGatewayVpcAttachment"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "aws:PrincipalAccount": "${network_account_id}"
+        }
+      }
+    }
+  ]
+}

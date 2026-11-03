@@ -60,9 +60,9 @@ variable "flow_logs_destination_type" {
 }
 
 variable "flow_logs_retention_days" {
-  description = "CloudWatch log retention in days for flow logs"
+  description = "CloudWatch log retention in days for flow logs. Checkov CKV_AWS_338 requires >= 365."
   type        = number
-  default     = 30
+  default     = 365
 }
 
 variable "flow_logs_kms_key_id" {
@@ -108,6 +108,24 @@ variable "ram_allow_external_principals" {
   description = "Allow sharing with principals outside the organization"
   type        = bool
   default     = false
+}
+
+#------------------------------------------------------------------------------
+# Segmentation blackholes
+#------------------------------------------------------------------------------
+
+variable "blackhole_routes" {
+  description = "Map of route table key (prod, nonprod, shared_services, inspection, onprem) to CIDRs that should be blackholed. More-specific than 0.0.0.0/0, so denied pairs are dropped at TGW even when a default route points at inspection."
+  type        = map(list(string))
+  default     = {}
+
+  validation {
+    condition = alltrue([
+      for k in keys(var.blackhole_routes) :
+      contains(["prod", "nonprod", "shared_services", "inspection", "onprem"], k)
+    ])
+    error_message = "blackhole_routes keys must be prod, nonprod, shared_services, inspection, or onprem."
+  }
 }
 
 #------------------------------------------------------------------------------

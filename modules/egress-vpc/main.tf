@@ -12,9 +12,14 @@ data "aws_availability_zones" "available" {
   state = "available"
 }
 
+data "aws_caller_identity" "current" {}
+data "aws_region" "current" {}
+
 locals {
-  azs      = var.availability_zones != null ? var.availability_zones : slice(data.aws_availability_zones.available.names, 0, var.az_count)
-  az_count = length(local.azs)
+  azs            = var.availability_zones != null ? var.availability_zones : slice(data.aws_availability_zones.available.names, 0, var.az_count)
+  az_count       = length(local.azs)
+  create_log_kms = var.enable_flow_logs && var.kms_key_id == null
+  log_kms_arn    = var.kms_key_id != null ? var.kms_key_id : (local.create_log_kms ? aws_kms_key.logs[0].arn : null)
 }
 
 #------------------------------------------------------------------------------
@@ -29,6 +34,14 @@ resource "aws_vpc" "this" {
   tags = merge(var.tags, {
     Name    = var.name
     Purpose = "egress"
+  })
+}
+
+resource "aws_default_security_group" "this" {
+  vpc_id = aws_vpc.this.id
+
+  tags = merge(var.tags, {
+    Name = "${var.name}-default-sg-locked"
   })
 }
 
@@ -190,12 +203,67 @@ resource "aws_ec2_transit_gateway_route_table_propagation" "this" {
 # VPC Flow Logs
 #------------------------------------------------------------------------------
 
+data "aws_iam_policy_document" "logs_kms" {
+  count = local.create_log_kms ? 1 : 0
+
+  statement {
+    sid    = "EnableRoot"
+    effect = "Allow"
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"]
+    }
+    actions   = ["kms:*"]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "AllowCloudWatchLogs"
+    effect = "Allow"
+    principals {
+      type        = "Service"
+      identifiers = ["logs.${data.aws_region.current.region}.amazonaws.com"]
+    }
+    actions = [
+      "kms:Encrypt",
+      "kms:Decrypt",
+      "kms:ReEncrypt*",
+      "kms:GenerateDataKey*",
+      "kms:DescribeKey",
+    ]
+    resources = ["*"]
+    condition {
+      test     = "ArnLike"
+      variable = "kms:EncryptionContext:aws:logs:arn"
+      values   = ["arn:aws:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:*"]
+    }
+  }
+}
+
+resource "aws_kms_key" "logs" {
+  count = local.create_log_kms ? 1 : 0
+
+  description             = "${var.name} VPC flow log encryption"
+  enable_key_rotation     = true
+  deletion_window_in_days = 7
+  policy                  = data.aws_iam_policy_document.logs_kms[0].json
+
+  tags = var.tags
+}
+
+resource "aws_kms_alias" "logs" {
+  count = local.create_log_kms ? 1 : 0
+
+  name          = "alias/${var.name}-vpc-logs"
+  target_key_id = aws_kms_key.logs[0].id
+}
+
 resource "aws_cloudwatch_log_group" "flow_logs" {
   count = var.enable_flow_logs ? 1 : 0
 
   name              = "/aws/vpc/${var.name}/flow-logs"
   retention_in_days = var.flow_logs_retention_days
-  kms_key_id        = var.kms_key_id
+  kms_key_id        = local.log_kms_arn
 
   tags = var.tags
 }

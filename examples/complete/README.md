@@ -65,24 +65,21 @@ This example deploys the complete architecture with all components:
 
 ## Cost Estimate
 
-**WARNING: This deployment creates resources that incur hourly charges.**
+**This stack incurs hourly charges until destroyed.** Figures are us-east-1 public list, idle, 730 h/month. See the root README for sources and arithmetic.
 
-| Resource | Hourly | Monthly (730h) | Notes |
-|----------|--------|----------------|-------|
-| Transit Gateway | $0.05 | $36.50 | Per attachment-hour |
-| TGW Attachments (5) | $0.25 | $182.50 | 5 VPCs + 1 VPN |
-| TGW Data Processing | Variable | ~$20-100 | $0.02/GB |
-| Network Firewall | $0.395 | $288.35 | Per endpoint-hour |
-| NFW Data Processing | Variable | ~$10-50 | $0.065/GB |
-| NAT Gateway | $0.045 | $32.85 | Per NAT-hour |
-| NAT Data Processing | Variable | ~$10-30 | $0.045/GB |
-| VPN Connection | $0.05 | $36.50 | 2 tunnels |
-| EC2 Instances (4) | $0.04 | $29.20 | t3.micro/small |
-| Route 53 Resolver | $0.125 | $91.25 | Per endpoint-hour |
-| CloudWatch Logs | Variable | ~$5-20 | Flow logs |
-| **Minimum Total** | **~$1.00** | **~$730** | Idle resources |
+| Resource | Hourly | Monthly (730h) |
+|----------|--------|----------------|
+| TGW attachments (5 × $0.05) | $0.25 | $182.50 |
+| Network Firewall (2 endpoints × $0.395) | $0.79 | $576.70 |
+| NAT Gateway (1 × $0.045) | $0.045 | $32.85 |
+| Site-to-Site VPN | $0.05 | $36.50 |
+| Resolver ENIs (4 × $0.125) | $0.50 | $365.00 |
+| EC2 (t3.small + 3 × t3.micro) | $0.052 | $37.96 |
+| Public IPv4 (4 × $0.005) | $0.02 | $14.60 |
+| KMS (approx.) | — | $6 |
+| **Idle total** | **~$1.71** | **~$1,252** |
 
-*Costs based on us-west-2 pricing. Actual costs depend on data transfer.*
+Data processing is extra. There is no TGW charge beyond the five attachments. Network Firewall is per endpoint (two AZs). Resolver is per ENI (two endpoints × two AZs).
 
 ## Prerequisites
 
@@ -103,7 +100,7 @@ terraform plan
 terraform apply
 
 # Test connectivity (after deployment)
-# See scripts/test-connectivity.sh
+../../scripts/test-connectivity.sh
 
 # IMPORTANT: Destroy when done to avoid costs
 terraform destroy

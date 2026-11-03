@@ -1,0 +1,13 @@
+aws_region   = "us-east-1"
+project_name = "hybrid-network"
+
+network_account_id  = "111111111111"
+workload_account_id = "222222222222"
+
+# Leave null to run terraform validate against the caller identity.
+management_assume_role_arn = null
+network_assume_role_arn    = null
+workload_assume_role_arn   = null
+
+# Set to an OU or account ID to attach the SCP. Leave null to only create it.
+scp_target_id = null

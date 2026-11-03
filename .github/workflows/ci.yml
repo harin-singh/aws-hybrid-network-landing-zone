@@ -41,6 +41,7 @@ jobs:
           - modules/egress-vpc
           - examples/complete
           - examples/minimal
+          - examples/multi-account
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -71,15 +72,16 @@ jobs:
           tflint_version: v0.53.0
 
       - name: Init TFLint
-        run: tflint --init
+        run: tflint --init --config "${PWD}/.tflint.hcl"
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
       - name: Run TFLint
         run: |
+          set -euo pipefail
           for dir in modules/* examples/*; do
             echo "Linting $dir..."
-            tflint --chdir="$dir" --format=compact || true
+            tflint --chdir="$dir" --config "${PWD}/.tflint.hcl" --format=compact
           done
 
   checkov:
@@ -94,34 +96,9 @@ jobs:
         with:
           directory: .
           framework: terraform
+          config_file: .checkov.yaml
           quiet: true
           soft_fail: false
-          skip_check: >-
-            CKV_AWS_144,
-            CKV_AWS_145,
-            CKV2_AWS_19,
-            CKV_TF_1,
-            CKV_AWS_79,
-            CKV_AWS_331,
-            CKV2_AWS_12,
-            CKV2_AWS_5,
-            CKV2_AWS_11,
-            CKV_AWS_8,
-            CKV_AWS_126,
-            CKV_AWS_135,
-            CKV2_AWS_38,
-            CKV2_AWS_39,
-            CKV_AWS_130,
-            CKV_AWS_24,
-            CKV_AWS_25,
-            CKV_AWS_260,
-            CKV_AWS_23,
-            CKV_AWS_344,
-            CKV_AWS_345,
-            CKV_AWS_346,
-            CKV_AWS_382,
-            CKV_AWS_394,
-            CKV_AWS_338
           output_format: cli
           output_file_path: console
 
@@ -151,9 +128,11 @@ jobs:
         with:
           terraform_version: "1.9.8"
 
+      - name: Terraform Init
+        run: terraform init -backend=false
+
       - name: Run Terraform Tests
         run: terraform test -no-color
-        continue-on-error: true
 
   terraform-docs:
     name: Terraform Docs
@@ -185,4 +164,4 @@ jobs:
       - terraform-docs
     steps:
       - name: All checks passed
-        run: echo "All CI checks passed!"
+        run: echo "All CI checks passed"

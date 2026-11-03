@@ -1,7 +1,7 @@
 variable "aws_region" {
-  description = "AWS region for deployment"
+  description = "AWS region for deployment. README cost table is us-east-1 public list."
   type        = string
-  default     = "us-west-2"
+  default     = "us-east-1"
 }
 
 variable "project_name" {

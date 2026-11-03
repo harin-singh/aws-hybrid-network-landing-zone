@@ -1,18 +1,8 @@
 # AWS Hybrid Network Landing Zone
 
-A production-grade Terraform reference architecture for AWS hybrid networking. This project demonstrates advanced networking patterns including Transit Gateway with segmented routing, centralized inspection via AWS Network Firewall, hybrid DNS with Route 53 Resolver, and BGP-based VPN connectivity to a simulated on-premises environment.
+Terraform modules for an AWS hub-and-spoke network: Transit Gateway with separate route tables, centralized inspection (Network Firewall + NAT), hybrid DNS (Route 53 Resolver), and a BGP Site-to-Site VPN to a simulated on-premises router.
 
-## Why This Matters
-
-Enterprise AWS deployments need more than VPC peering. They need:
-
-- **Segmentation**: Prod and non-prod workloads isolated at the network layer
-- **Centralized inspection**: All east-west and egress traffic through a security appliance
-- **Hybrid connectivity**: Reliable, BGP-based routing to on-premises data centers
-- **Hybrid DNS**: Seamless name resolution across AWS and corporate networks
-- **Scalability**: A hub-and-spoke model that scales to dozens of accounts
-
-This project implements these patterns with production-ready Terraform modules. It pairs well with my [AWS Network MCP](https://github.com/harin-singh/aws-network-mcp) server for AI-assisted network diagnostics.
+Related: [aws-network-mcp](https://github.com/harin-singh/aws-network-mcp) for network diagnostics against a deployed hub.
 
 ## Architecture
 
@@ -71,258 +61,218 @@ flowchart TB
     RT_INSPECT --> PROD_EC2 & NONPROD_EC2 & R53_IN
 ```
 
-## Segmentation Rules
+## Segmentation
 
-All traffic flows through the inspection VPC. Route table associations and propagations enforce segmentation:
+East-west and egress traffic is steered to the inspection VPC (`0.0.0.0/0` and specific prefixes on each spoke RT). Denied pairs are dropped twice:
+
+1. **TGW blackhole** – more specific than the default route, so the packet never reaches inspection.
+2. **Network Firewall** – `STRICT_ORDER` with `stateful_default_actions = ["aws:drop_established"]` and explicit drop/pass Suricata rules.
 
 | Attachment | Associates With | Propagates To | Can Reach |
 |------------|-----------------|---------------|-----------|
 | Prod VPC | `prod` RT | `inspection` RT | Shared Services, On-prem, Internet (inspected) |
 | Nonprod VPC | `nonprod` RT | `inspection` RT | Shared Services, Internet (inspected) |
-| Shared Services VPC | `shared-services` RT | All RTs | All VPCs, On-prem |
+| Shared Services VPC | `shared-services` RT | `inspection` RT | All VPCs, On-prem |
 | Inspection VPC | `inspection` RT | None | Return traffic to all attachments |
-| VPN (On-prem) | `onprem` RT | `prod`, `shared-services`, `inspection` RTs | Prod, Shared Services |
+| VPN (On-prem) | `onprem` RT | `inspection` RT | Prod, Shared Services |
+
+VPN and spoke prefixes are **not** propagated onto prod/nonprod/shared RTs. Those tables use static routes via the inspection attachment plus blackholes for denied CIDRs, so BGP cannot install a more-specific path that skips the firewall.
 
 ### Traffic Flow Examples
 
 **Prod to Internet:**
 ```
-Prod EC2 → Prod RT (0.0.0.0/0 → Inspection) → TGW → Inspection VPC → 
+Prod EC2 → Prod RT (0.0.0.0/0 → Inspection) → TGW → Inspection VPC →
 Network Firewall → NAT Gateway → IGW → Internet
 ```
 
 **Prod to On-prem:**
 ```
-Prod EC2 → Prod RT (10.200.0.0/16 → Inspection) → TGW → Inspection VPC → 
-Network Firewall → TGW → On-prem RT → VPN → On-prem Router
+Prod EC2 → Prod RT (10.200.0.0/16 and 192.168.100.0/24 → Inspection) → TGW →
+Inspection VPC → Network Firewall → TGW → On-prem RT → VPN → On-prem Router
 ```
 
-**Prod to Nonprod (BLOCKED):**
+**Prod to Nonprod (BLOCKED at TGW, also dropped by firewall):**
 ```
-Prod EC2 → Prod RT → No route to 10.20.0.0/24 → DROPPED
+Prod EC2 → Prod RT (10.20.0.0/24 blackhole) → DROPPED
 ```
+
+`scripts/test-connectivity.sh` asserts the same matrix (prod/nonprod/on-prem ping allow/deny).
 
 ## Modules
 
 | Module | Purpose |
 |--------|---------|
-| `transit-gateway` | Hub TGW with segmented route tables (prod, nonprod, shared-services, inspection, onprem) |
+| `transit-gateway` | Hub TGW with segmented route tables and optional RAM share / blackholes |
 | `spoke-vpc` | Workload VPC with TGW attachment subnets, no IGW, optional SSM endpoints |
-| `inspection-vpc` | Network Firewall with appliance mode, centralized NAT egress |
+| `inspection-vpc` | Network Firewall (default drop) with appliance mode and centralized NAT |
 | `shared-services-vpc` | Route 53 Resolver inbound/outbound endpoints, forwarding rules, private zones |
-| `egress-vpc` | Simple NAT-only egress (alternative to inspection for cost savings) |
-| `site-to-site-vpn` | TGW VPN attachment with BGP, configurable IPsec/IKE parameters |
-| `simulated-onprem` | EC2 router running strongSwan + FRR for testing hybrid connectivity |
+| `egress-vpc` | NAT-only egress (cheaper alternative to inspection) |
+| `site-to-site-vpn` | TGW VPN attachment with BGP |
+| `simulated-onprem` | EC2 router (strongSwan + FRR); VPN PSKs live in SSM, not user_data |
 
 ## Design Decisions
 
-### Why Appliance Mode on the Inspection VPC Attachment?
+### Appliance mode on the inspection attachment
 
-Appliance mode ensures symmetric routing. Without it, return traffic might exit through a different AZ's firewall endpoint than the ingress traffic entered, breaking stateful inspection. This is critical for Network Firewall and any third-party appliances.
+Return traffic must egress the same AZ firewall endpoint it entered, or stateful inspection breaks.
 
-### Why Separate Route Tables?
+### Separate route tables plus blackholes
 
-A single default route table would allow all attachments to reach each other. Separate route tables let us control exactly which routes propagate to which attachments. Prod's route table doesn't receive nonprod routes, so there's no path between them at the TGW layer.
+A single default TGW route table would allow every attachment to reach every other. Separate tables control association and propagation. Blackholes cover the case where a default route to inspection would otherwise forward a denied prefix.
 
-### Why BGP for VPN?
+### BGP for VPN
 
-Static routing requires manual updates when on-premises networks change. BGP dynamically learns routes and provides automatic failover between tunnels. The 10-second timers in the FRR config ensure fast convergence.
+Static VPN routes need manual updates when on-prem prefixes change. BGP learns them and fails over between tunnels. FRR uses 10-second keepalive / 30-second hold.
 
-### Why This ASN Scheme?
+### ASN scheme
 
-- **TGW (64512)**: Start of the private 2-byte ASN range, clearly identifies the AWS side
-- **On-prem (65000)**: Common choice for customer gateways, leaves room for multiple sites (65001, 65002, etc.)
+- **TGW (64512)**: start of the private 2-byte range
+- **On-prem (65000)**: common customer-gateway choice; 65001+ remains available for more sites
 
-### DNS Architecture
+### DNS
 
-Route 53 Resolver endpoints enable bidirectional DNS:
-- **Inbound**: On-prem DNS servers forward `aws.example.internal` queries to the inbound endpoint IPs
-- **Outbound**: Forwarding rules send `corp.example.internal` queries through the outbound endpoint to on-prem DNS servers
+- **Inbound resolver**: on-prem forwarders send `aws.example.internal` to the inbound ENI IPs
+- **Outbound resolver**: `corp.example.internal` is forwarded to on-prem DNS
+- Forwarding rules can be RAM-shared so spoke VPCs resolve on-prem names
 
-Forwarding rules are shared via RAM so spoke VPCs automatically resolve on-prem names.
+## Direct Connect
 
-## Direct Connect Integration
+Direct Connect is **not deployed**. [docs/direct-connect.md](docs/direct-connect.md) is a design note covering DX Gateway + transit VIF as an alternative to the lab VPN. TGW route tables stay the same if a DX attachment replaces the VPN attachment in the `onprem` table.
 
-The simulated on-prem environment uses Site-to-Site VPN for demonstration. In production, Direct Connect provides dedicated, consistent bandwidth. The architecture would change to:
+## Multi-account
 
-```
-On-prem Router → Direct Connect Location → DX Connection → 
-DX Gateway → Transit VIF → Transit Gateway
-```
+[examples/multi-account](examples/multi-account) is a validate-able two-account config: network account owns TGW + inspection and shares the TGW via RAM; a workload account attaches a spoke. Route table association is created by the TGW owner. An Organizations SCP (`policies/protect-network-hub.json`) denies TGW and route-table mutation outside the network account.
 
-Key differences:
-- **Transit VIF**: A transit virtual interface on the DX gateway associates with the TGW
-- **No IPsec overhead**: Direct layer-2 connectivity
-- **Predictable latency**: Dedicated fiber vs. internet-based VPN
-- **Higher bandwidth**: 1-100 Gbps vs. 1.25 Gbps per VPN tunnel
+The single-account [examples/complete](examples/complete) stack is the lab that `scripts/test-connectivity.sh` exercises.
 
-The TGW route tables and segmentation work identically whether traffic arrives via VPN or DX.
+## Cost Estimate (us-east-1)
 
-## Multi-Account Pattern
+Prices below are AWS public list prices for **us-east-1**, idle (no data processing). Month = 730 hours. Check current numbers on the linked pages before budgeting.
 
-This example runs in a single account for simplicity. For multi-account deployments:
+Sources: [Transit Gateway](https://aws.amazon.com/transit-gateway/pricing/), [Network Firewall](https://aws.amazon.com/network-firewall/pricing/), [Route 53](https://aws.amazon.com/route53/pricing/), [NAT Gateway](https://aws.amazon.com/vpc/pricing/), [Site-to-Site VPN](https://aws.amazon.com/vpn/pricing/), [EC2 on-demand](https://aws.amazon.com/ec2/pricing/on-demand/), [public IPv4](https://aws.amazon.com/vpc/pricing/).
 
-1. **Network Account**: Owns the TGW, inspection VPC, shared services VPC
-2. **Workload Accounts**: Own spoke VPCs, attach to shared TGW
+### Complete example (`az_count = 2`)
 
-```hcl
-# In network account - share TGW via RAM
-module "transit_gateway" {
-  source = "./modules/transit-gateway"
-  
-  share_tgw = true
-  ram_principals = [
-    "arn:aws:organizations::111111111111:ou/o-example/ou-example-prod",
-    "arn:aws:organizations::111111111111:ou/o-example/ou-example-nonprod",
-  ]
-}
+| Resource | Math | Hourly | Monthly |
+|----------|------|--------|---------|
+| TGW attachments (5) | 5 × $0.05 | $0.25 | $182.50 |
+| Network Firewall endpoints (2) | 2 × $0.395 | $0.79 | $576.70 |
+| NAT Gateway (1) | 1 × $0.045 | $0.045 | $32.85 |
+| Site-to-Site VPN | 1 × $0.05 | $0.05 | $36.50 |
+| Route 53 Resolver ENIs (4) | inbound+outbound × 2 AZs × $0.125 | $0.50 | $365.00 |
+| EC2 | t3.small + 3 × t3.micro ($0.0208 + 3×$0.0104) | $0.052 | $37.96 |
+| Public IPv4 (4) | NAT EIP + router EIP + 2 VPN tunnel IPs × $0.005 | $0.02 | $14.60 |
+| KMS CMKs (approx. 6) | $1/key-month | — | $6.00 |
+| **Idle total** | | **~$1.71** | **~$1,252** |
 
-# In workload account - reference shared TGW
-data "aws_ec2_transit_gateway" "shared" {
-  filter {
-    name   = "owner-id"
-    values = ["<network-account-id>"]
-  }
-}
-```
+Notes:
 
-Consider AWS VPC IPAM for centralized CIDR management across accounts:
+- There is **no** separate TGW hourly fee beyond attachments.
+- Resolver is billed **per ENI-hour**, not per endpoint object. Two endpoints in two AZs = four ENIs.
+- Network Firewall is billed **per endpoint-hour**. `az_count = 2` provisions two endpoints.
+- Data processing (TGW $0.02/GB, NFW $0.065/GB, NAT $0.045/GB, VPN data transfer) is extra and is ~$0 when idle.
+- CloudWatch Logs ingestion/storage is extra.
 
-```hcl
-# Enable IPAM allocation in spoke-vpc module
-module "spoke_vpc" {
-  source = "./modules/spoke-vpc"
-  
-  ipam_pool_id        = aws_vpc_ipam_pool.prod.id
-  ipam_netmask_length = 24
-}
-```
+See [docs/DEPLOY_AND_VERIFY.md](docs/DEPLOY_AND_VERIFY.md) for per-hour run cost and teardown.
 
-## Cost Estimate
+### Minimal example (1 AZ, no NFW, no VPN, no Resolver)
 
-### Complete Example (~$730/month idle)
-
-| Resource | Hourly | Monthly | Notes |
-|----------|--------|---------|-------|
-| Transit Gateway | $0.05 | $36.50 | Base cost |
-| TGW Attachments (5) | $0.25 | $182.50 | $0.05/attachment-hour |
-| TGW Data Processing | - | ~$50 | $0.02/GB |
-| Network Firewall | $0.395 | $288.35 | Per endpoint |
-| NFW Data Processing | - | ~$30 | $0.065/GB |
-| NAT Gateway | $0.045 | $32.85 | Single NAT |
-| NAT Data Processing | - | ~$20 | $0.045/GB |
-| VPN Connection | $0.05 | $36.50 | 2 tunnels |
-| Route 53 Resolver | $0.125 | $91.25 | 4 endpoints |
-| EC2 Instances | ~$0.05 | ~$35 | t3.micro/small |
-
-### Minimal Example (~$215/month idle)
-
-No Network Firewall, no VPN, no Resolver endpoints, single AZ.
+| Resource | Math | Hourly | Monthly |
+|----------|------|--------|---------|
+| TGW attachments (4) | 4 × $0.05 | $0.20 | $146.00 |
+| NAT Gateway (1) | 1 × $0.045 | $0.045 | $32.85 |
+| **Idle total** | | **~$0.25** | **~$179** |
 
 ## Quick Start
 
 ```bash
-# Clone
 git clone https://github.com/harin-singh/aws-hybrid-network-landing-zone.git
 cd aws-hybrid-network-landing-zone
 
-# Validate
 make validate
 
-# Deploy minimal (cheaper)
+# Cheaper hub (no firewall, no VPN)
 cd examples/minimal
 terraform init
 terraform apply
 
-# Or deploy complete
+# Full hub (see cost table)
 cd examples/complete
 cp terraform.tfvars.example terraform.tfvars
 terraform init
 terraform apply
 
-# Test connectivity
-../scripts/test-connectivity.sh
+# From examples/complete:
+../../scripts/test-connectivity.sh
 
-# IMPORTANT: Destroy when done
 terraform destroy
-# or from repo root:
-make destroy
 ```
+
+Step-by-step apply, test, evidence capture, and destroy: [docs/DEPLOY_AND_VERIFY.md](docs/DEPLOY_AND_VERIFY.md).
 
 ## Testing
 
-### Terraform Tests (No AWS Credentials Required)
+### Terraform tests (no AWS credentials)
 
 ```bash
 terraform test
 ```
 
-Uses mock providers to validate module logic without deploying resources.
+Tests live in `tests/` and assert TGW blackholes, firewall default-drop, denied prod↔nonprod rules, IMDSv2, and that VPN PSKs are not in user_data.
 
-### Connectivity Matrix (Requires Deployment)
+### Connectivity matrix (requires a live complete stack)
 
 ```bash
 cd examples/complete
-./scripts/test-connectivity.sh
+../../scripts/test-connectivity.sh
 ```
 
-Uses SSM Run Command to verify segmentation rules are enforced.
+Uses SSM Run Command. Exit code 1 on any failed assertion.
 
-### VPN/BGP Status
+### VPN/BGP status
 
 ```bash
 ./scripts/check-vpn-status.sh
 ```
 
-## CI Pipeline
+## CI
 
-GitHub Actions runs on every PR:
+GitHub Actions on every PR:
 
-- `terraform fmt -check`: Code formatting
-- `terraform validate`: Configuration validity
-- `tflint`: Terraform best practices
-- `checkov`: Security scanning
-- `gitleaks`: Secret detection
-- `terraform test`: Mock provider tests
-- `terraform-docs`: Documentation generation
+- `terraform fmt -check`
+- `terraform validate` on every module and example (including `examples/multi-account`)
+- `tflint` (fails the job on findings)
+- `checkov` (`.checkov.yaml` only; no `continue-on-error` / `|| true`)
+- `gitleaks`
+- `terraform test`
 
 ## Repository Structure
 
 ```
 .
 ├── modules/
-│   ├── transit-gateway/      # Hub TGW with segmented route tables
-│   ├── spoke-vpc/            # Workload VPCs
-│   ├── inspection-vpc/       # Network Firewall + NAT
-│   ├── shared-services-vpc/  # Route 53 Resolver
-│   ├── egress-vpc/           # Simple NAT egress
-│   ├── site-to-site-vpn/     # BGP VPN
-│   └── simulated-onprem/     # strongSwan + FRR router
+│   ├── transit-gateway/
+│   ├── spoke-vpc/
+│   ├── inspection-vpc/
+│   ├── shared-services-vpc/
+│   ├── egress-vpc/
+│   ├── site-to-site-vpn/
+│   └── simulated-onprem/
 ├── examples/
-│   ├── complete/             # Full architecture
-│   └── minimal/              # Cost-optimized
-├── tests/                    # Terraform test files
-├── scripts/                  # Connectivity testing
-├── docs/                     # Additional documentation
-└── .github/workflows/        # CI pipeline
+│   ├── complete/
+│   ├── minimal/
+│   └── multi-account/
+├── tests/
+├── scripts/
+├── docs/
+│   ├── DEPLOY_AND_VERIFY.md
+│   ├── direct-connect.md      # design only, not deployed
+│   ├── multi-account.md
+│   └── evidence/              # populate after a real apply; not fabricated
+└── .github/workflows/
 ```
-
-## Roadmap
-
-- [ ] AWS Firewall Manager integration
-- [ ] Gateway Load Balancer for third-party appliances
-- [ ] AWS Network Manager for global network visualization
-- [ ] Terraform Cloud workspace configuration
-- [ ] Cost optimization recommendations based on flow logs
-
-## Related Projects
-
-- [aws-network-mcp](https://github.com/harin-singh/aws-network-mcp): MCP server for AI-assisted network diagnostics. Deploy this landing zone, then use the MCP server to troubleshoot connectivity issues.
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
-
----
-
-*This is a clean-room reference implementation for portfolio purposes. No employer-specific configurations, real account IDs, or production IP addresses are included.*
+MIT License - see [LICENSE](LICENSE).

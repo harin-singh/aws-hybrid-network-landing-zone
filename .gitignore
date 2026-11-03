@@ -5,6 +5,7 @@
 **/crash.log
 **/crash.*.log
 **/.terraform.lock.hcl
+.terraform.lock.hcl
 
 # Override files
 override.tf

@@ -59,9 +59,9 @@ variable "enable_flow_logs" {
 }
 
 variable "flow_logs_retention_days" {
-  description = "CloudWatch log retention in days"
+  description = "CloudWatch log retention in days. Checkov CKV_AWS_338 requires >= 365."
   type        = number
-  default     = 30
+  default     = 365
 }
 
 variable "kms_key_id" {

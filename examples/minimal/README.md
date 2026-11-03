@@ -13,7 +13,7 @@ A simplified, cost-optimized version of the hybrid network architecture.
 ## What's NOT Included
 
 - AWS Network Firewall (biggest cost saver)
-- Route 53 Resolver endpoints (~$90/month saved)
+- Route 53 Resolver endpoints (4 ENIs × $0.125/h ≈ $365/month saved vs complete)
 - VPN connection and simulated on-prem
 - VPC Flow Logs
 - SSM VPC Endpoints
@@ -23,10 +23,9 @@ A simplified, cost-optimized version of the hybrid network architecture.
 
 | Resource | Hourly | Monthly (730h) |
 |----------|--------|----------------|
-| Transit Gateway | $0.05 | $36.50 |
-| TGW Attachments (4) | $0.20 | $146.00 |
-| NAT Gateway (1) | $0.045 | $32.85 |
-| **Total (idle)** | **~$0.30** | **~$215** |
+| TGW attachments (4 × $0.05) | $0.20 | $146.00 |
+| NAT Gateway (1 × $0.045) | $0.045 | $32.85 |
+| **Idle total** | **~$0.25** | **~$179** |
 
 *Does not include data transfer costs.*
 
