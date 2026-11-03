@@ -2,8 +2,6 @@
 
 A production-grade Terraform reference architecture for AWS hybrid networking. This project demonstrates advanced networking patterns including Transit Gateway with segmented routing, centralized inspection via AWS Network Firewall, hybrid DNS with Route 53 Resolver, and BGP-based VPN connectivity to a simulated on-premises environment.
 
-Built by [Harinder Singh](https://github.com/harin-singh) - Cloud Infrastructure & SRE Leader with AWS Advanced Networking Specialty, Solutions Architect Professional, and Terraform Associate certifications. Deep experience with Transit Gateway, Direct Connect, BGP routing, Route 53 hybrid DNS, and Zscaler across 40+ AWS accounts.
-
 ## Why This Matters
 
 Enterprise AWS deployments need more than VPC peering. They need:
