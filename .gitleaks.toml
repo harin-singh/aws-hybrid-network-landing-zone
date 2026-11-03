@@ -13,3 +13,9 @@ paths = [
   '''\.git/''',
   '''\.tfvars\.example$''',
 ]
+regexTarget = "match"
+regexes = [
+  # Terraform variable references for PSK, not actual secrets
+  '''tunnel[12]_preshared_key\s*=\s*var\.tunnel[12]_psk''',
+  '''tunnel[12]_psk''',
+]

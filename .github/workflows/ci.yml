@@ -96,11 +96,7 @@ jobs:
           framework: terraform
           quiet: true
           soft_fail: false
-          skip_check: >-
-            CKV_AWS_144,
-            CKV_AWS_145,
-            CKV2_AWS_19,
-            CKV_TF_1
+          config_file: .checkov.yaml
           output_format: cli
           output_file_path: console
 
