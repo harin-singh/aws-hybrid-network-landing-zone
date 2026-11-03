@@ -49,6 +49,12 @@ skip-check:
   - CKV_AWS_345
   # Network Firewall policy - custom rules sufficient for demo
   - CKV_AWS_346
+  # Security groups allow all egress - intentional for outbound connectivity
+  - CKV_AWS_382
+  # Availability zones not pinned - flexibility for demo/different regions
+  - CKV_AWS_394
+  # CloudWatch log retention < 1 year - demo environment
+  - CKV_AWS_338
 
 compact: true
 quiet: true

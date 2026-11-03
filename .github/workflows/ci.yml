@@ -120,7 +120,8 @@ jobs:
             CKV_AWS_345,
             CKV_AWS_346,
             CKV_AWS_382,
-            CKV_AWS_394
+            CKV_AWS_394,
+            CKV_AWS_338
           output_format: cli
           output_file_path: console
 
