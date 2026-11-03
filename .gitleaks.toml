@@ -1,0 +1,15 @@
+# Gitleaks configuration
+# https://github.com/gitleaks/gitleaks
+
+title = "Gitleaks Config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Global allowlist"
+paths = [
+  '''\.terraform/''',
+  '''\.git/''',
+  '''\.tfvars\.example$''',
+]

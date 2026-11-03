@@ -1,0 +1,33 @@
+# Example terraform.tfvars for complete deployment
+# Copy this file to terraform.tfvars and customize as needed
+
+aws_region   = "us-west-2"
+project_name = "hybrid-network"
+
+# Reduce costs by using 2 AZs and single NAT gateway
+az_count           = 2
+single_nat_gateway = true
+
+# VPC CIDRs - Adjust to avoid conflicts with existing networks
+inspection_vpc_cidr       = "10.0.0.0/24"
+shared_services_vpc_cidr  = "10.1.0.0/24"
+prod_vpc_cidr             = "10.10.0.0/24"
+nonprod_vpc_cidr          = "10.20.0.0/24"
+simulated_onprem_vpc_cidr = "192.168.100.0/24"
+
+# On-premises simulation - This CIDR is advertised via BGP
+onprem_cidr = "10.200.0.0/16"
+
+# BGP ASNs
+onprem_bgp_asn      = 65000
+tgw_amazon_side_asn = 64512
+
+# On-premises DNS servers (for Route 53 Resolver forwarding)
+# In the simulation these don't exist, but show how forwarding would work
+onprem_dns_servers = ["10.200.0.10", "10.200.0.11"]
+
+tags = {
+  Project     = "aws-hybrid-network-landing-zone"
+  Environment = "demo"
+  Owner       = "Harinder Singh"
+}
