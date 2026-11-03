@@ -1,0 +1,60 @@
+# Checkov configuration
+# https://www.checkov.io/2.Basics/CLI%20Command%20Reference.html
+
+framework:
+  - terraform
+
+skip-check:
+  # Cross-region replication not needed for demo
+  - CKV_AWS_144
+  # S3 default encryption handled at bucket level
+  - CKV_AWS_145
+  # S3 MFA delete not needed for demo
+  - CKV2_AWS_19
+  # Module source versioning - using local modules
+  - CKV_TF_1
+  # VPC flow logs to S3 encryption - using CloudWatch
+  - CKV_AWS_338
+  # ALB drop invalid headers - no ALBs in this project
+  - CKV_AWS_131
+  # IMDSv2 - handled by instance configuration (can be added in production)
+  - CKV_AWS_79
+  # TGW auto-accept - intentionally enabled for RAM-shared attachments from org accounts
+  - CKV_AWS_331
+  # Default security group restriction - reference architecture, users should add in production
+  - CKV2_AWS_12
+  # Security groups are attached to resolver/VPC endpoints (false positive)
+  - CKV2_AWS_5
+  # VPC flow logs in simulated on-prem - not needed for demo component
+  - CKV2_AWS_11
+  # EBS encryption - test/demo instances don't need encryption
+  - CKV_AWS_8
+  # EC2 detailed monitoring - not needed for demo instances
+  - CKV_AWS_126
+  # EBS optimized - t3 instances are EBS optimized by default, check doesn't recognize
+  - CKV_AWS_135
+  # Route 53 DNSSEC - private zones, not applicable
+  - CKV2_AWS_38
+  # Route 53 query logging - optional for private zones in demo
+  - CKV2_AWS_39
+  # Public IP on simulated on-prem - required for VPN router
+  - CKV_AWS_130
+  # Security group 0.0.0.0/0 ingress - VPN router needs to accept IPsec from AWS endpoints
+  - CKV_AWS_24
+  - CKV_AWS_25
+  - CKV_AWS_260
+  - CKV_AWS_23
+  # Network Firewall encryption - CMK encryption optional for demo
+  - CKV_AWS_344
+  - CKV_AWS_345
+  # Network Firewall policy - custom rules sufficient for demo
+  - CKV_AWS_346
+  # Security groups allow all egress - intentional for outbound connectivity
+  - CKV_AWS_382
+  # Availability zones not pinned - flexibility for demo/different regions
+  - CKV_AWS_394
+  # CloudWatch log retention < 1 year - demo environment
+  - CKV_AWS_338
+
+compact: true
+quiet: true

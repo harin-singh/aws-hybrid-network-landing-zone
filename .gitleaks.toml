@@ -1,0 +1,21 @@
+# Gitleaks configuration
+# https://github.com/gitleaks/gitleaks
+
+title = "Gitleaks Config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Global allowlist"
+paths = [
+  '''\.terraform/''',
+  '''\.git/''',
+  '''\.tfvars\.example$''',
+]
+regexTarget = "match"
+regexes = [
+  # Terraform variable references for PSK, not actual secrets
+  '''tunnel[12]_preshared_key\s*=\s*var\.tunnel[12]_psk''',
+  '''tunnel[12]_psk''',
+]
