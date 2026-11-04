@@ -9,10 +9,10 @@
 # - Site-to-Site VPN with BGP
 # - Simulated on-premises environment (strongSwan + FRR)
 #
-# Segmentation Rules:
-# - Prod spoke: Can reach shared-services and on-prem, NOT non-prod
-# - Non-prod spoke: Can reach shared-services, NOT prod or on-prem
-# - All traffic inspected by Network Firewall
+# Segmentation (enforced by TGW blackholes AND Network Firewall default-drop):
+# - Prod spoke: shared-services, on-prem, internet. Not non-prod.
+# - Non-prod spoke: shared-services, internet. Not prod or on-prem.
+# - All allowed east-west and egress is inspected.
 #
 # WARNING: This example creates resources that incur costs. See cost table below.
 # Run `make destroy` or `terraform destroy` when done testing.
@@ -53,7 +53,22 @@ module "transit_gateway" {
   amazon_side_asn = var.tgw_amazon_side_asn
 
   enable_flow_logs         = true
-  flow_logs_retention_days = 30
+  flow_logs_retention_days = 365
+
+  # Defense in depth: blackholes are more specific than 0.0.0.0/0 → inspection.
+  blackhole_routes = {
+    prod = [
+      var.nonprod_vpc_cidr,
+    ]
+    nonprod = [
+      var.prod_vpc_cidr,
+      var.onprem_cidr,
+      var.simulated_onprem_vpc_cidr,
+    ]
+    onprem = [
+      var.nonprod_vpc_cidr,
+    ]
+  }
 
   tags = var.tags
 }
@@ -76,11 +91,17 @@ module "inspection_vpc" {
   tgw_route_table_id              = module.transit_gateway.inspection_route_table_id
   tgw_propagation_route_table_ids = []
 
-  spoke_cidrs_aggregate = "10.0.0.0/8"
-  home_net_cidrs        = ["10.0.0.0/8", var.onprem_cidr]
+  private_return_cidrs   = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+  home_net_cidrs         = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+  prod_cidrs             = [var.prod_vpc_cidr]
+  nonprod_cidrs          = [var.nonprod_vpc_cidr]
+  shared_cidrs           = [var.shared_services_vpc_cidr]
+  onprem_cidrs           = [var.onprem_cidr, var.simulated_onprem_vpc_cidr]
+  allow_inspected_egress = true
 
   enable_firewall_logs = true
   enable_flow_logs     = true
+  log_retention_days   = 365
 
   tags = var.tags
 }
@@ -98,11 +119,10 @@ module "shared_services_vpc" {
 
   transit_gateway_id = module.transit_gateway.transit_gateway_id
   tgw_route_table_id = module.transit_gateway.shared_services_route_table_id
+  # Propagate only to inspection so east-west is forced through the firewall.
+  # Static routes on spoke RTs send allowed prefixes to the inspection attachment.
   tgw_propagation_route_table_ids = [
-    module.transit_gateway.prod_route_table_id,
-    module.transit_gateway.nonprod_route_table_id,
     module.transit_gateway.inspection_route_table_id,
-    module.transit_gateway.onprem_route_table_id,
   ]
 
   enable_resolver_endpoints = true
@@ -192,7 +212,13 @@ module "simulated_onprem" {
   tunnel2_cgw_inside_ip = module.site_to_site_vpn.tunnel2_cgw_inside_address
   tunnel2_aws_inside_ip = module.site_to_site_vpn.tunnel2_vgw_inside_address
 
+  ipsec_peer_cidrs = [
+    "${module.site_to_site_vpn.tunnel1_address}/32",
+    "${module.site_to_site_vpn.tunnel2_address}/32",
+  ]
+
   create_test_instance = true
+  enable_flow_logs     = true
 
   tags = var.tags
 }
@@ -211,9 +237,9 @@ module "site_to_site_vpn" {
   customer_gateway_ip      = module.simulated_onprem.router_public_ip
   customer_gateway_bgp_asn = var.onprem_bgp_asn
 
+  # BGP prefixes land only on the inspection RT. Spoke RTs use static routes
+  # via inspection so hybrid traffic cannot skip the firewall.
   tgw_propagation_route_table_ids = [
-    module.transit_gateway.prod_route_table_id,
-    module.transit_gateway.shared_services_route_table_id,
     module.transit_gateway.inspection_route_table_id,
   ]
 
@@ -290,6 +316,30 @@ resource "aws_ec2_transit_gateway_route" "shared_to_onprem" {
   transit_gateway_route_table_id = module.transit_gateway.shared_services_route_table_id
 }
 
+resource "aws_ec2_transit_gateway_route" "prod_to_onprem_vpc" {
+  destination_cidr_block         = var.simulated_onprem_vpc_cidr
+  transit_gateway_attachment_id  = module.inspection_vpc.tgw_attachment_id
+  transit_gateway_route_table_id = module.transit_gateway.prod_route_table_id
+}
+
+resource "aws_ec2_transit_gateway_route" "shared_to_onprem_vpc" {
+  destination_cidr_block         = var.simulated_onprem_vpc_cidr
+  transit_gateway_attachment_id  = module.inspection_vpc.tgw_attachment_id
+  transit_gateway_route_table_id = module.transit_gateway.shared_services_route_table_id
+}
+
+resource "aws_ec2_transit_gateway_route" "inspection_to_onprem" {
+  destination_cidr_block         = var.onprem_cidr
+  transit_gateway_attachment_id  = module.site_to_site_vpn.tgw_attachment_id
+  transit_gateway_route_table_id = module.transit_gateway.inspection_route_table_id
+}
+
+resource "aws_ec2_transit_gateway_route" "inspection_to_onprem_vpc" {
+  destination_cidr_block         = var.simulated_onprem_vpc_cidr
+  transit_gateway_attachment_id  = module.site_to_site_vpn.tgw_attachment_id
+  transit_gateway_route_table_id = module.transit_gateway.inspection_route_table_id
+}
+
 #------------------------------------------------------------------------------
 # Test Instances - For connectivity validation
 #------------------------------------------------------------------------------
@@ -350,10 +400,18 @@ resource "aws_security_group" "test_instance" {
   }
 
   egress {
-    description = "All outbound"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
+    description = "ICMP for connectivity tests"
+    from_port   = -1
+    to_port     = -1
+    protocol    = "icmp"
+    cidr_blocks = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+  }
+
+  egress {
+    description = "HTTPS for SSM and inspected internet egress tests"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
@@ -376,10 +434,18 @@ resource "aws_security_group" "test_instance_nonprod" {
   }
 
   egress {
-    description = "All outbound"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
+    description = "ICMP for connectivity tests"
+    from_port   = -1
+    to_port     = -1
+    protocol    = "icmp"
+    cidr_blocks = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+  }
+
+  egress {
+    description = "HTTPS for SSM and inspected internet egress tests"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
@@ -394,6 +460,19 @@ resource "aws_instance" "prod_test" {
   subnet_id              = module.prod_spoke_vpc.private_subnet_ids[0]
   vpc_security_group_ids = [aws_security_group.test_instance.id]
   iam_instance_profile   = aws_iam_instance_profile.test_instance.name
+  ebs_optimized          = true
+
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 1
+    instance_metadata_tags      = "disabled"
+  }
+
+  root_block_device {
+    encrypted   = true
+    volume_type = "gp3"
+  }
 
   tags = merge(var.tags, {
     Name = "${var.project_name}-prod-test"
@@ -406,6 +485,19 @@ resource "aws_instance" "nonprod_test" {
   subnet_id              = module.nonprod_spoke_vpc.private_subnet_ids[0]
   vpc_security_group_ids = [aws_security_group.test_instance_nonprod.id]
   iam_instance_profile   = aws_iam_instance_profile.test_instance.name
+  ebs_optimized          = true
+
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 1
+    instance_metadata_tags      = "disabled"
+  }
+
+  root_block_device {
+    encrypted   = true
+    volume_type = "gp3"
+  }
 
   tags = merge(var.tags, {
     Name = "${var.project_name}-nonprod-test"

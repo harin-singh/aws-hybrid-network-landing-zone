@@ -55,10 +55,16 @@ variable "tunnel1_aws_endpoint" {
 }
 
 variable "tunnel1_psk" {
-  description = "Pre-shared key for tunnel 1"
+  description = "Pre-shared key for tunnel 1. Stored in SSM SecureString and fetched at boot; never written to user_data. Null skips SSM parameter creation."
   type        = string
-  default     = ""
+  default     = null
   sensitive   = true
+}
+
+variable "ipsec_peer_cidrs" {
+  description = "CIDRs allowed to send IKE/NAT-T/ESP to the router (AWS VPN tunnel outside IPs as /32s). Empty means no IPsec ingress is opened."
+  type        = list(string)
+  default     = []
 }
 
 variable "tunnel1_cgw_inside_ip" {
@@ -80,9 +86,9 @@ variable "tunnel2_aws_endpoint" {
 }
 
 variable "tunnel2_psk" {
-  description = "Pre-shared key for tunnel 2"
+  description = "Pre-shared key for tunnel 2. Stored in SSM SecureString and fetched at boot; never written to user_data. Null skips SSM parameter creation."
   type        = string
-  default     = ""
+  default     = null
   sensitive   = true
 }
 
@@ -106,6 +112,24 @@ variable "create_test_instance" {
   description = "Create a test instance in the private subnet"
   type        = bool
   default     = true
+}
+
+variable "enable_flow_logs" {
+  description = "Enable VPC flow logs"
+  type        = bool
+  default     = true
+}
+
+variable "flow_logs_retention_days" {
+  description = "CloudWatch log retention in days. Checkov CKV_AWS_338 requires >= 365."
+  type        = number
+  default     = 365
+}
+
+variable "kms_key_id" {
+  description = "KMS key ID for log encryption. If null, the module creates a CMK when flow logs are enabled."
+  type        = string
+  default     = null
 }
 
 #------------------------------------------------------------------------------

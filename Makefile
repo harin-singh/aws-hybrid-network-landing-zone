@@ -24,10 +24,10 @@ validate:
 # Run TFLint
 lint:
 	@echo "==> Running TFLint..."
-	@tflint --init 2>/dev/null || true
+	@tflint --init --config "$(PWD)/.tflint.hcl"
 	@for dir in modules/* examples/*; do \
 		echo "Linting $$dir..."; \
-		tflint --chdir="$$dir" --format=compact || true; \
+		tflint --chdir="$$dir" --config "$(PWD)/.tflint.hcl" --format=compact || exit 1; \
 	done
 
 # Run Checkov security scan

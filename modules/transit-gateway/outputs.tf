@@ -80,3 +80,8 @@ output "ram_resource_share_arn" {
   description = "ARN of the RAM resource share for the Transit Gateway"
   value       = var.share_tgw && length(var.ram_principals) > 0 ? aws_ram_resource_share.tgw[0].arn : null
 }
+
+output "blackhole_route_keys" {
+  description = "Keys of TGW blackhole routes (route_table:cidr)"
+  value       = keys(aws_ec2_transit_gateway_route.blackhole)
+}

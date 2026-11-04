@@ -1,6 +1,8 @@
 # Multi-Account Deployment Guide
 
-This document explains how to deploy the hybrid network landing zone across multiple AWS accounts using AWS Organizations, Resource Access Manager (RAM), and optionally VPC IPAM.
+A compact, `terraform validate`-able configuration lives in [examples/multi-account](../examples/multi-account): network account (TGW + inspection + RAM share), one workload account (spoke attachment), and an Organizations SCP that denies TGW/route-table mutation outside the network account.
+
+This page is the longer design note (IPAM, Account Factory, centralized flow logs). Placeholder OU ARNs below are examples, not live identifiers.
 
 ## Architecture Overview
 

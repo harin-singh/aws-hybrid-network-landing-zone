@@ -14,7 +14,7 @@
 # - Testing module functionality
 # - Budget-conscious environments
 #
-# Estimated monthly cost: ~$150-200 (vs ~$730 for complete example)
+# Estimated idle monthly cost (us-east-1): ~$179 vs ~$1,252 for examples/complete.
 #------------------------------------------------------------------------------
 
 terraform {
@@ -52,6 +52,15 @@ module "transit_gateway" {
   amazon_side_asn = 64512
 
   enable_flow_logs = false
+
+  blackhole_routes = {
+    prod = [
+      var.nonprod_vpc_cidr,
+    ]
+    nonprod = [
+      var.prod_vpc_cidr,
+    ]
+  }
 
   tags = var.tags
 }

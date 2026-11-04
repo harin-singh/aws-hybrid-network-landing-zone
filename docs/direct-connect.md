@@ -1,6 +1,8 @@
 # Direct Connect Integration
 
-This document explains how AWS Direct Connect would integrate with this landing zone architecture. The simulated on-premises module uses Site-to-Site VPN for demonstration, but Direct Connect is the production choice for hybrid connectivity.
+**Design document only. Nothing in this file is created by Terraform in this repository.** The lab hybrid path is Site-to-Site VPN (`modules/site-to-site-vpn` + `modules/simulated-onprem`). Use this note if you are replacing that VPN attachment with a DX Gateway + transit VIF.
+
+This document explains how AWS Direct Connect would integrate with the same TGW route tables. Direct Connect is the usual production choice for hybrid connectivity; it is not part of `examples/complete` or `examples/minimal`.
 
 ## Architecture Overview
 
@@ -58,14 +60,15 @@ Regional resource that bridges DX connections to VPCs or Transit Gateways. Requi
 ### Transit Virtual Interface (Transit VIF)
 A virtual interface on the DX connection associated with a DX Gateway. Carries BGP sessions and routes traffic to/from the Transit Gateway.
 
-## Terraform Configuration
+## Terraform Configuration (not implemented)
 
-### DX Gateway Module (Conceptual)
+There is no `modules/dx-gateway` in this repo. The HCL below is illustrative.
+
+### DX Gateway (conceptual)
 
 ```hcl
-# This module would be created if you have Direct Connect
 module "dx_gateway" {
-  source = "./modules/dx-gateway"  # You would create this
+  source = "./modules/dx-gateway"  # not in this repository
 
   name            = "hybrid-network-dxgw"
   amazon_side_asn = 64512

@@ -58,10 +58,10 @@ variable "tgw_propagation_route_table_ids" {
   default     = []
 }
 
-variable "spoke_cidrs_aggregate" {
-  description = "Aggregate CIDR for spoke VPCs (for return routing)"
-  type        = string
-  default     = "10.0.0.0/8"
+variable "private_return_cidrs" {
+  description = "Private CIDRs sent from the firewall/public subnets back to TGW (more specific than 0.0.0.0/0 so internet still goes to NAT). Include every RFC1918 range used by spokes, shared services, and on-prem."
+  type        = list(string)
+  default     = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
 }
 
 #------------------------------------------------------------------------------
@@ -75,9 +75,39 @@ variable "blocked_domains" {
 }
 
 variable "home_net_cidrs" {
-  description = "CIDRs representing internal networks for firewall rules"
+  description = "CIDRs representing internal networks for firewall HOME_NET (egress uses !$HOME_NET)"
   type        = list(string)
   default     = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+}
+
+variable "prod_cidrs" {
+  description = "Production spoke CIDRs used in segmentation drop/pass rules"
+  type        = list(string)
+  default     = []
+}
+
+variable "nonprod_cidrs" {
+  description = "Non-production spoke CIDRs used in segmentation drop/pass rules"
+  type        = list(string)
+  default     = []
+}
+
+variable "shared_cidrs" {
+  description = "Shared-services CIDRs used in segmentation drop/pass rules"
+  type        = list(string)
+  default     = []
+}
+
+variable "onprem_cidrs" {
+  description = "On-premises CIDRs (advertised LAN plus simulated VPC) used in segmentation drop/pass rules"
+  type        = list(string)
+  default     = []
+}
+
+variable "allow_inspected_egress" {
+  description = "Pass HOME_NET traffic to destinations outside HOME_NET (centralized internet egress)"
+  type        = bool
+  default     = true
 }
 
 #------------------------------------------------------------------------------
@@ -97,9 +127,9 @@ variable "enable_flow_logs" {
 }
 
 variable "log_retention_days" {
-  description = "CloudWatch log retention in days"
+  description = "CloudWatch log retention in days. Checkov CKV_AWS_338 requires >= 365."
   type        = number
-  default     = 30
+  default     = 365
 }
 
 variable "kms_key_id" {

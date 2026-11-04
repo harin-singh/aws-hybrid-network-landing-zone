@@ -1,7 +1,7 @@
 # Example terraform.tfvars for complete deployment
 # Copy this file to terraform.tfvars and customize as needed
 
-aws_region   = "us-west-2"
+aws_region   = "us-east-1"
 project_name = "hybrid-network"
 
 # Reduce costs by using 2 AZs and single NAT gateway
