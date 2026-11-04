@@ -3,7 +3,7 @@
 #
 # Implements segmented routing with separate route tables for:
 # - Production workloads
-# - Non-production workloads  
+# - Non-production workloads
 # - Shared services (DNS, monitoring, etc.)
 # - Inspection (centralized Network Firewall)
 # - On-premises connectivity (VPN/Direct Connect)

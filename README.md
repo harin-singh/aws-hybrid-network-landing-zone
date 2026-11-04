@@ -236,6 +236,33 @@ Uses SSM Run Command. Exit code 1 on any failed assertion.
 ./scripts/check-vpn-status.sh
 ```
 
+## Local development
+
+Install [pre-commit](https://pre-commit.com/) and the tools below, then install the git hooks:
+
+```bash
+pip install pre-commit
+make setup          # pre-commit install --install-hooks
+```
+
+Run every hook on the whole repository (same command as CI):
+
+```bash
+make pre-commit     # pre-commit run --all-files
+```
+
+Required versions (same as CI):
+
+| Tool | Version | Notes |
+|------|---------|--------|
+| Terraform | 1.9.8 | `terraform_fmt`, `terraform_validate` |
+| TFLint | v0.53.0 | uses [`.tflint.hcl`](.tflint.hcl) |
+| Checkov | 3.4.3 | uses [`.checkov.yaml`](.checkov.yaml); installed by the pinned hook |
+| Gitleaks | v8.30.1 | uses [`.gitleaks.toml`](.gitleaks.toml); installed by the pinned hook |
+| pre-commit | 3.2+ | Python 3.12 |
+
+Do not set `SKIP` or `--from-ref` when reproducing CI.
+
 ## CI
 
 GitHub Actions on every PR:
@@ -246,6 +273,7 @@ GitHub Actions on every PR:
 - `checkov` (`.checkov.yaml` only; no `continue-on-error` / `|| true`)
 - `gitleaks`
 - `terraform test`
+- `pre-commit run --all-files` (same config/skip lists as the jobs above)
 
 ## Repository Structure
 
