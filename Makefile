@@ -1,4 +1,4 @@
-.PHONY: all fmt validate lint test docs clean help
+.PHONY: all fmt validate lint test docs clean help setup pre-commit pre-commit-install
 
 # Default target
 all: fmt validate lint test
@@ -82,7 +82,7 @@ destroy-complete:
 	@read -p "Continue? [y/N] " confirm && [ "$$confirm" = "y" ]
 	cd examples/complete && terraform destroy
 
-# Destroy minimal example  
+# Destroy minimal example
 destroy-minimal:
 	@echo "==> Destroying minimal example..."
 	@echo "WARNING: This will destroy all resources!"
@@ -110,6 +110,18 @@ clean:
 	find . -type f -name ".terraform.lock.hcl" -exec rm -f {} + 2>/dev/null || true
 	@echo "Cleaned."
 
+# Install git hooks (same config files as CI)
+setup: pre-commit-install
+
+pre-commit-install:
+	@echo "==> Installing pre-commit git hooks..."
+	pre-commit install --install-hooks
+
+# Run every hook on the whole repo (same command as the CI pre-commit job)
+pre-commit:
+	@echo "==> Running pre-commit on all files..."
+	pre-commit run --all-files --show-diff-on-failure
+
 # Run full CI pipeline locally
 ci: fmt-check validate lint security test
 	@echo "==> All CI checks passed!"
@@ -133,5 +145,8 @@ help:
 	@echo "  destroy-minimal - Destroy minimal example"
 	@echo "  destroy         - Quick destroy all (no confirmation)"
 	@echo "  clean           - Clean up generated files"
+	@echo "  setup           - Install pre-commit git hooks"
+	@echo "  pre-commit-install - Install pre-commit git hooks"
+	@echo "  pre-commit      - Run pre-commit on all files"
 	@echo "  ci              - Run full CI pipeline locally"
 	@echo "  help            - Show this help"

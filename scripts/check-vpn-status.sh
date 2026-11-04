@@ -41,34 +41,34 @@ echo
 echo "--- BGP Status (On-Prem Router) ---"
 if [[ -n "$ROUTER_INSTANCE" ]]; then
     echo "Fetching BGP summary from router..."
-    
+
     COMMAND_ID=$(aws ssm send-command \
         --instance-ids "$ROUTER_INSTANCE" \
         --document-name "AWS-RunShellScript" \
         --parameters 'commands=["sudo vtysh -c \"show bgp summary\""]' \
         --output text \
         --query "Command.CommandId")
-    
+
     sleep 5
-    
+
     aws ssm get-command-invocation \
         --command-id "$COMMAND_ID" \
         --instance-id "$ROUTER_INSTANCE" \
         --query "StandardOutputContent" \
         --output text 2>/dev/null || echo "Could not retrieve BGP status"
-    
+
     echo
     echo "--- BGP Advertised Routes ---"
-    
+
     COMMAND_ID=$(aws ssm send-command \
         --instance-ids "$ROUTER_INSTANCE" \
         --document-name "AWS-RunShellScript" \
         --parameters 'commands=["sudo vtysh -c \"show ip route\""]' \
         --output text \
         --query "Command.CommandId")
-    
+
     sleep 5
-    
+
     aws ssm get-command-invocation \
         --command-id "$COMMAND_ID" \
         --instance-id "$ROUTER_INSTANCE" \
@@ -89,7 +89,7 @@ if [[ -n "$TGW_ID" ]]; then
         --filters "Name=transit-gateway-id,Values=$TGW_ID" \
         --query 'TransitGatewayRouteTables[*].TransitGatewayRouteTableId' \
         --output text)
-    
+
     for rt in $ROUTE_TABLES; do
         echo "Route Table: $rt"
         aws ec2 search-transit-gateway-routes \

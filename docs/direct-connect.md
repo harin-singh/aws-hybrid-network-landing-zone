@@ -174,10 +174,10 @@ resource "aws_ec2_transit_gateway_route_table_association" "dx" {
 router bgp 65000
   neighbor <dx1-aws-ip> remote-as 64512
   neighbor <dx1-aws-ip> route-map PREFER-DX out
-  
+
   neighbor <dx2-aws-ip> remote-as 64512
   neighbor <dx2-aws-ip> route-map PREFER-DX out
-  
+
   neighbor <vpn-aws-ip> remote-as 64512
   neighbor <vpn-aws-ip> route-map BACKUP out
 

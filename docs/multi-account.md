@@ -151,7 +151,7 @@ module "spoke_vpc" {
   cidr_block  = "10.100.0.0/24"
 
   transit_gateway_id = data.aws_ec2_transit_gateway.shared.id
-  
+
   # Route table ID from network account (via SSM Parameter or Terraform remote state)
   tgw_route_table_id = var.prod_route_table_id
 
